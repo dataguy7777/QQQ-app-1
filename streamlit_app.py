@@ -33,26 +33,29 @@ st.set_page_config(page_title="QQQ 3× Comparison", layout="wide")
 @lru_cache(maxsize=8)
 def _download(symbol: str, start: str) -> pd.DataFrame:
     """
-    Downloads daily OHLC data for a given symbol with yfinance.
+    Fetches daily prices and returns a single-column DataFrame named <symbol>.
 
     Args:
         symbol (str): Ticker to download. Example: 'QQQ'
-        start (str): ISO date 'YYYY-MM-DD'. Example: '2020-01-01'
+        start  (str): 'YYYY-MM-DD'. Example: '2020-01-01'
 
     Returns:
-        pd.DataFrame: Adj-Close series with DatetimeIndex. Example:
-
-            >>> _download('QQQ', '2024-01-02').head()
-                          Adj Close
-            Date
-            2024-01-02   408.579987
-            2024-01-03   397.480011
+        pd.DataFrame: DatetimeIndex, one column labelled <symbol>
     """
     logging.info("Fetching %s from %s", symbol, start)
     df = yf.download(symbol, start=start, auto_adjust=True, progress=False)
-    if df.empty:
-        raise ValueError(f"No data returned for {symbol}.")
-    return df[["Adj Close"]].rename(columns={"Adj Close": symbol})
+
+    # yfinance: if auto_adjust=True, 'Adj Close' is removed; fall back to 'Close'
+    close_col = "Adj Close" if "Adj Close" in df.columns else "Close"
+    if close_col not in df.columns:
+        raise ValueError(f"{symbol}: expected 'Close' or 'Adj Close' in returned data.")
+
+    return (
+        df[[close_col]]
+        .rename(columns={close_col: symbol})
+        .dropna()
+    )
+
 
 
 def build_dataset(start: str) -> pd.DataFrame:
