@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """
 Streamlit dashboard to compare QQQ, QQQ3.MI and a synthetic 3×-QQQ proxy.
-
-Run:
-    pip install -r requirements.txt
-    streamlit run app.py
 """
 from __future__ import annotations
 
@@ -36,30 +32,26 @@ TICKER_LEV  = "QQQ3.MI"    # 3× leveraged Nasdaq-100 ETF (Borsa Italiana)
 # ──────────────────────────────────────────
 @lru_cache(maxsize=8)
 def _download(symbol: str, start: str) -> pd.DataFrame:
-    """
-    Return one tz-naive adjusted-price column named exactly *symbol*.
-    """
+    """Return one tz-naive adjusted-price column named *symbol*."""
     df = yf.download(symbol, start=start, auto_adjust=True, progress=False)
 
     col = "Adj Close" if "Adj Close" in df.columns else "Close"
     if col not in df.columns:
         raise ValueError(f"{symbol}: missing price column")
 
-    if df.index.tz is not None:                # drop timezone → tz-naive
+    if df.index.tz is not None:                     # strip timezone → tz-naive
         df.index = df.index.tz_convert(None)
 
     return df[[col]].rename(columns={col: symbol}).dropna()
 
 
 def build_dataset(start: str) -> pd.DataFrame:
-    """
-    QQQ, QQQ3.MI + synthetic «QQQ×3» merged on common dates.
-    """
+    """QQQ, QQQ3.MI + synthetic «QQQ×3» merged on common dates."""
     qqq  = _download(TICKER_BASE, start)
     qqq3 = _download(TICKER_LEV,  start)
 
     merged = pd.concat([qqq, qqq3], axis=1).dropna(how="all")
-    merged["QQQ×3"] = merged[TICKER_BASE] * 3        # proxy
+    merged["QQQ×3"] = merged[TICKER_BASE] * 3
     merged = merged.dropna()
 
     if merged.empty:
@@ -95,13 +87,13 @@ def main() -> None:
     df_plot = normalise(data) if "Normalised" in view else data
     y_label = "Indexed level (start = 100)" if "Normalised" in view else "Price"
 
-    # --- Altair chart (index fixed) -------------------------------------------
-    chart_df = (
+    # --- Altair chart (robust column naming) ----------------------------------
+    temp = (
         df_plot
-        .rename_axis("Date")        # ★ guarantees a 'Date' column
-        .reset_index()
-        .melt(id_vars="Date", var_name="Ticker", value_name="Price")
+        .reset_index()                                        # index → column
+        .rename(columns={df_plot.index.name or "index": "Date"})  # ensure Date
     )
+    chart_df = temp.melt(id_vars="Date", var_name="Ticker", value_name="Price")
 
     chart = (
         alt.Chart(chart_df)
