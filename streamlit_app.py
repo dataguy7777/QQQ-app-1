@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Streamlit dashboard to compare QQQ, QQ3.MI and a synthetic 3×-QQQ proxy.
+Streamlit dashboard to compare QQQ, QQQ3.MI and a synthetic 3×-QQQ proxy.
 
-Usage
------
-$ pip install -r requirements.txt
-$ streamlit run app.py
+Run:
+    pip install -r requirements.txt
+    streamlit run app.py
 """
 from __future__ import annotations
 
@@ -17,9 +16,9 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Configuration
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="QQQ 3× ETF Comparison", layout="wide")
 
 logging.basicConfig(
@@ -28,33 +27,23 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+TICKER_BASE = "QQQ"        # Nasdaq-100 ETF
+TICKER_LEV  = "QQQ3.MI"    # 3× leveraged Nasdaq-100 ETF on Borsa Italiana
 
-# ──────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Data helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 @lru_cache(maxsize=8)
 def _download(symbol: str, start: str) -> pd.DataFrame:
     """
-    Download daily prices for *symbol* from *start* up to today.
+    Download daily prices for *symbol* from *start* onward and return one
+    adjusted-price column named exactly *symbol* with a **tz-naive** index.
 
-    Args:
-        symbol (str):
-            Ticker (e.g. ``'QQQ'``).
-        start (str):
-            ISO-8601 start date (``'YYYY-MM-DD'``).
-
-    Returns:
-        pd.DataFrame:
-            One column named exactly like *symbol*, *auto-adjusted* for splits
-            and dividends. Example::
-
-                >>> _download("QQQ", "2024-01-02").head()
-                               QQQ
-                Date
-                2024-01-02  408.58
-
-    Raises:
-        ValueError: If no price column is found.
+    Raises
+    ------
+    ValueError
+        If no 'Close' or 'Adj Close' column is found.
     """
     logging.info("Fetching %s from %s", symbol, start)
     df = yf.download(symbol, start=start, auto_adjust=True, progress=False)
@@ -63,34 +52,32 @@ def _download(symbol: str, start: str) -> pd.DataFrame:
     if close_col not in df.columns:
         raise ValueError(f"{symbol}: neither 'Close' nor 'Adj Close' in data.")
 
+    # ensure tz-naive index so we can concat safely
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert(None)
+
     return df[[close_col]].rename(columns={close_col: symbol}).dropna()
 
 
 def build_dataset(start: str) -> pd.DataFrame:
     """
-    Merge QQQ and QQ3.MI, then add a synthetic ``QQQ×3`` column.
+    Merge QQQ and QQQ3.MI, then add a synthetic ``QQQ×3`` column.
 
-    Args:
-        start (str):
-            ISO start date.
-
-    Returns:
-        pd.DataFrame:
-            Columns ``['QQQ', 'QQ3.MI', 'QQQ×3']`` with common dates.
-
-    Raises:
-        ValueError: If the merge ends up empty (no overlapping dates).
+    Raises
+    ------
+    ValueError
+        If the merge ends up empty (no overlapping dates).
     """
-    qqq = _download("QQQ", start)
-    qq3 = _download("QQ3.MI", start)
+    qqq  = _download(TICKER_BASE, start)
+    qqq3 = _download(TICKER_LEV,  start)
 
-    merged = pd.concat([qqq, qq3], axis=1).dropna(how="all")
-    merged["QQQ×3"] = merged["QQQ"] * 3
+    merged = pd.concat([qqq, qqq3], axis=1).dropna(how="all")
+    merged["QQQ×3"] = merged[TICKER_BASE] * 3
     merged = merged.dropna()
 
     if merged.empty:
         raise ValueError(
-            "No overlapping data between QQQ and QQ3.MI for the selected start date."
+            "No overlapping data between QQQ and QQQ3.MI for the selected start date."
         )
 
     logging.info("Merged dataset rows: %d", len(merged))
@@ -98,23 +85,15 @@ def build_dataset(start: str) -> pd.DataFrame:
 
 
 def normalise(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Re-index each column so the first valid observation = 100.
-
-    Args:
-        df (pd.DataFrame): Price DataFrame.
-
-    Returns:
-        pd.DataFrame: Re-based DataFrame or *df* unchanged if empty.
-    """
+    """Re-index each column so the first valid observation = 100."""
     if df.empty:
         return df
     return df.div(df.iloc[0]).mul(100)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Streamlit UI
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     st.title("📈 Nasdaq-100 – 3× ETF Comparison")
 
@@ -154,7 +133,7 @@ def main() -> None:
     )
     st.caption(
         "**QQQ×3** is a simple 3× multiple of QQQ (ignores daily compounding); "
-        "**QQ3.MI** is the actual leveraged ETF traded on Borsa Italiana."
+        "**QQQ3.MI** is the actual leveraged ETF traded on Borsa Italiana."
     )
 
 
